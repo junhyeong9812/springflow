@@ -1,4 +1,4 @@
-package com.study.springflow.springflow;
+package com.study.springflow;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
