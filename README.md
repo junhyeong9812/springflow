@@ -32,317 +32,759 @@ Spring의 요청 처리 흐름, 트랜잭션 처리, 예외 처리, DispatcherSe
 
 #### AopConfig
 
-* `@EnableAspectJAutoProxy` 활성화를 통한 AOP 기능 설정
-* **테스트 가능한 기능:**
-  * `proxyTargetClass=true` 옵션을 통한 CGLIB 기반 프록시 생성 테스트
-  * `exposeProxy=true` 설정으로 AopContext를 통한 self-invocation 문제 해결 테스트
-  * 수동 Advisor 등록을 통한 세밀한 AOP 제어
-  * 트랜잭션 AOP 설정 및 동작 확인
+* `@EnableAspectJAutoProxy`를 사용하여 AOP 설정을 수동으로 명시합니다.
+
+  * **proxyTargetClass=true 설정**:
+    * CGLIB 기반 프록시 생성을 활성화합니다.
+    * CGLIB(Code Generation Library)는 클래스 기반 프록시로, 타겟 클래스를 상속받아 서브클래스를 생성합니다.
+    * JDK 동적 프록시(인터페이스 기반)와 달리 인터페이스가 없는 클래스에도 AOP를 적용할 수 있습니다.
+    * final 클래스나 메서드에는 적용할 수 없고, 기본 생성자가 필요합니다.
+
+  * **exposeProxy=true 옵션**:
+    * AOP 프록시를 현재 스레드의 ThreadLocal에 노출시키는 설정입니다.
+    * `AopContext.currentProxy()`를 통해 현재 실행 중인 메서드의 AOP 프록시에 접근할 수 있게 합니다.
+    * Self-Invocation(자기 호출) 문제를 해결할 때 유용합니다.
+
+  * **Self-Invocation 문제**:
+    * 같은 클래스 내에서 메서드 A가 메서드 B를 호출할 때, B에 적용된 어드바이스(예: @Transactional)가 작동하지 않는 문제입니다.
+    * 내부 호출은 프록시를 통하지 않고 직접 대상 객체의 메서드를 호출하기 때문에 발생합니다.
+    * `AopContext.currentProxy()`를 사용하거나, 서비스 자신을 주입받아 프록시를 통해 호출하는 방식으로 해결합니다.
+
+  * **수동 Advisor 등록**:
+    * Advisor는 Pointcut(어디에 적용할지)과 Advice(무엇을 적용할지)를 결합한 객체입니다.
+    * 어노테이션 대신 프로그래밍 방식으로 AOP를 설정할 때 사용합니다.
+    * 세밀한 제어가 필요하거나, 런타임에 AOP 설정을 변경해야 할 때 유용합니다.
+    * 예: `DefaultPointcutAdvisor`를 빈으로 등록하여 특정 패턴의 메서드에 로깅 또는 트랜잭션 기능을 적용
+
+  **코드 예시 및 추가 설정 옵션:**
+    ```java
+    @Configuration
+    @EnableAspectJAutoProxy(proxyTargetClass = true)
+    public class AopConfig {
+        // exposeProxy=true 설정 추가
+        // @EnableAspectJAutoProxy(proxyTargetClass = true, exposeProxy = true)
+        
+        // 수동 Advisor 등록 예시
+        @Bean
+        public DefaultPointcutAdvisor loggingAdvisor() {
+            AspectJExpressionPointcut pointcut = new AspectJExpressionPointcut();
+            pointcut.setExpression("execution(* com.study.springflow.service.*.*(..))");
+            
+            MethodInterceptor advice = invocation -> {
+                System.out.println("Before: " + invocation.getMethod().getName());
+                Object result = invocation.proceed();
+                System.out.println("After: " + invocation.getMethod().getName());
+                return result;
+            };
+            
+            return new DefaultPointcutAdvisor(pointcut, advice);
+        }
+        
+        // 트랜잭션 AOP 설정 예시
+        @Bean
+        public TransactionInterceptor transactionInterceptor(PlatformTransactionManager transactionManager) {
+            Properties txAttributes = new Properties();
+            txAttributes.setProperty("get*", "PROPAGATION_REQUIRED,readOnly");
+            txAttributes.setProperty("find*", "PROPAGATION_REQUIRED,readOnly");
+            txAttributes.setProperty("*", "PROPAGATION_REQUIRED");
+            
+            TransactionInterceptor txAdvice = new TransactionInterceptor();
+            txAdvice.setTransactionManager(transactionManager);
+            txAdvice.setTransactionAttributes(txAttributes);
+            return txAdvice;
+        }
+    }
+    ```
 
 #### DispatcherConfig
 
-* `DispatcherServlet` 수동 등록 및 설정
-* **테스트 가능한 기능:**
-  * 다중 DispatcherServlet 등록 (URL 패턴별 다른 서블릿 매핑)
-  * 개별 DispatcherServlet에 별도의 ApplicationContext 연결
-  * 서블릿 초기화 파라미터 설정
-  * DispatcherServlet 확장을 통한 요청 처리 로직 수정
+* `DispatcherServlet`을 명시적으로 수동 등록하여 요청 진입점 흐름을 실험합니다.
 
-#### FilterConfig
+  * **DispatcherServlet이란?**:
+    * Spring MVC의 핵심 컴포넌트로, Front Controller 패턴을 구현한 클래스입니다.
+    * 클라이언트의 모든 요청은 DispatcherServlet이 가장 먼저 받아 처리 흐름을 제어합니다.
+    * 내부적으로 HandlerMapping, HandlerAdapter, ViewResolver 등과 협력해 요청을 컨트롤러에 위임하고, 응답을 뷰로 전달합니다.
+    * 보통 Spring Boot에서는 자동으로 등록되지만, 본 프로젝트에서는 명시적으로 등록하여 요청 흐름을 관찰합니다.
 
-* 서블릿 필터 등록 및 설정
-* **테스트 가능한 기능:**
-  * 다중 필터 체인 구성 (인증, 로깅, 인코딩 등)
-  * URL 패턴별 필터 적용
-  * 필터 실행 순서 제어
-  * 필터 초기화 파라미터 설정
-  * 요청/응답 래핑을 통한 본문 수정 테스트
+  **코드 예시 및 추가 설정 옵션:**
+    ```java
+    @Configuration
+    public class DispatcherConfig {
+        @Bean
+        public ServletRegistrationBean<DispatcherServlet> dispatcherServlet(DispatcherServlet dispatcherServlet) {
+            ServletRegistrationBean<DispatcherServlet> registration = new ServletRegistrationBean<>(dispatcherServlet, "/");
+            registration.setName("dispatcherServlet");
+            registration.setLoadOnStartup(1);
+            
+            // 추가 설정 옵션:
+            // 1. 다중 URL 패턴 설정
+            // registration.addUrlMappings("/app/*", "/web/*");
+            
+            // 2. 서블릿 초기화 파라미터 설정
+            // Map<String, String> params = new HashMap<>();
+            // params.put("throwExceptionIfNoHandlerFound", "true");
+            // registration.setInitParameters(params);
+            
+            // 3. 멀티파트 설정
+            // registration.setMultipartConfig(
+            //     new MultipartConfigElement("/tmp/uploads", 5 * 1024 * 1024, 25 * 1024 * 1024, 1 * 1024 * 1024)
+            // );
+            
+            return registration;
+        }
+        
+        // 다중 DispatcherServlet 등록 예시
+        @Bean
+        public DispatcherServlet apiDispatcherServlet() {
+            DispatcherServlet servlet = new DispatcherServlet();
+            servlet.setThrowExceptionIfNoHandlerFound(true);
+            return servlet;
+        }
+        
+        @Bean
+        public ServletRegistrationBean<DispatcherServlet> apiServletRegistration() {
+            return new ServletRegistrationBean<>(apiDispatcherServlet(), "/api/*");
+        }
+    }
+    ```
+  #### FilterConfig
+
+* `FilterRegistrationBean`을 통해 서블릿 레벨 필터를 등록합니다.
+
+  **코드 예시 및 추가 설정 옵션:**
+    ```java
+    @Configuration
+    public class FilterConfig {
+        @Bean
+        public FilterRegistrationBean<Filter> loggingFilter() {
+            FilterRegistrationBean<Filter> registration = new FilterRegistrationBean<>();
+            registration.setFilter(new LoggingFilter());
+            registration.addUrlPatterns("/*");                // 전체 경로에 적용
+            registration.setOrder(1);                         // 실행 순서
+            registration.setName("LoggingFilter");
+            registration.setEnabled(true);                    // 필터 활성화 여부
+            
+            // 추가 설정 옵션:
+            // 1. 특정 경로만 필터 적용
+            // registration.addUrlPatterns("/api/*");
+            
+            // 2. 필터 초기화 파라미터 설정
+            // Map<String, String> initParams = new HashMap<>();
+            // initParams.put("logLevel", "DEBUG");
+            // initParams.put("includePayload", "true");
+            // registration.setInitParameters(initParams);
+            
+            return registration;
+        }
+        
+        // 다중 필터 체인 구성 예시
+        @Bean
+        public FilterRegistrationBean<CharacterEncodingFilter> encodingFilter() {
+            FilterRegistrationBean<CharacterEncodingFilter> registration = new FilterRegistrationBean<>();
+            CharacterEncodingFilter filter = new CharacterEncodingFilter();
+            filter.setEncoding("UTF-8");
+            filter.setForceEncoding(true);
+            registration.setFilter(filter);
+            registration.addUrlPatterns("/*");
+            registration.setOrder(0); // 가장 먼저 실행
+            return registration;
+        }
+    }
+    ```
 
 #### ViewResolverConfig
 
-* `InternalResourceViewResolver` 수동 등록
-* **테스트 가능한 기능:**
-  * 다중 ViewResolver 체인 설정
-  * ContentNegotiatingViewResolver를 통한 응답 형식 협상
-  * Thymeleaf, FreeMarker 등 다양한 템플릿 엔진 연동
-  * JSON/XML 응답용 View 등록
-  * 예외 처리용 View 매핑
+* `InternalResourceViewResolver`를 직접 등록하여 JSP 뷰를 처리합니다.
+
+  **코드 예시 및 추가 설정 옵션:**
+    ```java
+    @Configuration
+    public class ViewResolverConfig {
+        @Bean
+        public ViewResolver internalResourceViewResolver() {
+            InternalResourceViewResolver resolver = new InternalResourceViewResolver();
+            resolver.setPrefix("/WEB-INF/views/");    // 뷰 파일 경로
+            resolver.setSuffix(".jsp");               // 확장자
+            resolver.setOrder(0);                     // 우선순위 (낮을수록 우선)
+            
+            // 추가 설정 옵션:
+            // 1. 컨텍스트 내 Bean을 뷰에서 참조 가능하게 설정
+            // resolver.setExposeContextBeansAsAttributes(true);
+            
+            // 2. 특정 뷰 이름 패턴만 처리
+            // resolver.setViewNames("jsp*");
+            
+            return resolver;
+        }
+        
+        // 다중 ViewResolver 설정 예시
+        @Bean
+        public ViewResolver contentNegotiatingViewResolver(ContentNegotiationManager manager,
+                                                          List<ViewResolver> resolvers) {
+            ContentNegotiatingViewResolver resolver = new ContentNegotiatingViewResolver();
+            resolver.setContentNegotiationManager(manager);
+            resolver.setViewResolvers(resolvers);
+            resolver.setOrder(-1); // 최우선 순위
+            return resolver;
+        }
+        
+        // JSON View 등록 예시
+        @Bean(name = "jsonView")
+        public MappingJackson2JsonView jsonView() {
+            MappingJackson2JsonView view = new MappingJackson2JsonView();
+            view.setPrettyPrint(true);
+            return view;
+        }
+    }
+    ```
 
 #### WebMvcConfig
 
-* Spring MVC의 다양한 기능 설정
-* **테스트 가능한 기능:**
-  * 정적 리소스 핸들러 설정 및 캐싱
-  * CORS 설정 (도메인, 메서드, 헤더 등)
-  * 인터셉터 등록 및 URL 패턴 매핑
-  * 뷰 컨트롤러를 통한 간단한 뷰 매핑
-  * 메시지 컨버터 설정
-  * 경로 매칭 옵션 설정
-  * 컨트롤러 메서드 인자 리졸버 등록
-  * 비동기 요청 처리 설정
+* **WebMvcConfigurer 인터페이스**를 구현하여 다음 설정을 수동으로 구성합니다:
+
+  * **Interceptor**: Spring MVC에서 컨트롤러 실행 전후 로직을 삽입할 수 있는 컴포넌트
+  * **CORS**: Cross-Origin Resource Sharing 설정
+  * **ViewController**: 단순 뷰 이동을 위한 URL → View 매핑 설정
+  * **MessageConverter**: 요청/응답 변환기(Jackson, XML 등)를 확장하거나 교체 가능
+  * **HandlerExceptionResolver**: 예외를 뷰 또는 JSON 응답으로 매핑
+
+  **코드 예시 및 추가 설정 옵션:**
+    ```java
+    @Configuration
+    public class WebMvcConfig implements WebMvcConfigurer {
+        // 정적 리소스 핸들러 설정
+        @Override
+        public void addResourceHandlers(ResourceHandlerRegistry registry) {
+            registry.addResourceHandler("/static/**")
+                    .addResourceLocations("classpath:/static/");
+                    
+            // 추가 설정 옵션:
+            // 1. 리소스 캐싱 설정
+            // .setCachePeriod(3600) // 1시간 캐싱
+            // .setCacheControl(CacheControl.maxAge(1, TimeUnit.HOURS));
+            
+            // 2. 다중 리소스 위치 설정
+            // .addResourceLocations("classpath:/static/", "classpath:/public/");
+        }
+        
+        // CORS 설정
+        @Override
+        public void addCorsMappings(CorsRegistry registry) {
+            registry.addMapping("/api/**")
+                    .allowedOrigins("*")
+                    .allowedMethods("GET", "POST", "PUT", "DELETE")
+                    .allowedHeaders("*")
+                    .allowCredentials(true);
+                    
+            // 추가 설정 옵션:
+            // 1. 특정 도메인만 허용
+            // .allowedOrigins("https://trusted-client.com")
+            
+            // 2. 프리플라이트 캐시 설정
+            // .maxAge(3600) // 1시간 동안 프리플라이트 결과 캐싱
+        }
+        
+        // 인터셉터 등록
+        @Override
+        public void addInterceptors(InterceptorRegistry registry) {
+            registry.addInterceptor(new AuthInterceptor())
+                    .addPathPatterns("/**")
+                    .excludePathPatterns("/static/**", "/error")
+                    .order(1);
+                    
+            // 추가 설정 옵션:
+            // 1. 다중 인터셉터 등록
+            // registry.addInterceptor(new LoggingInterceptor())
+            //         .addPathPatterns("/**")
+            //         .order(0); // 인증 인터셉터보다 먼저 실행
+        }
+        
+        // 뷰 컨트롤러 등록
+        @Override
+        public void addViewControllers(ViewControllerRegistry registry) {
+            registry.addViewController("/login").setViewName("login");
+            registry.setOrder(0);
+            
+            // 추가 설정 옵션:
+            // 1. 리디렉션 컨트롤러
+            // registry.addRedirectViewController("/", "/home");
+            
+            // 2. 상태 코드 컨트롤러
+            // registry.addStatusController("/health", HttpStatus.OK);
+        }
+        
+        // 경로 매치 설정
+        @Override
+        public void configurePathMatch(PathMatchConfigurer configurer) {
+            configurer.setUseTrailingSlashMatch(true);
+            configurer.setUseSuffixPatternMatch(false);
+            
+            // 추가 설정 옵션:
+            // 1. 매트릭스 변수 활성화
+            // configurer.setRemoveSemicolonContent(false);
+            
+            // 2. 대소문자 구분 설정
+            // configurer.setCaseSensitive(true);
+        }
+        
+        // 컨트롤러 메서드 인자 리졸버 등록
+        @Override
+        public void addArgumentResolvers(List<HandlerMethodArgumentResolver> resolvers) {
+            // 커스텀 인자 리졸버 등록 예시
+            // resolvers.add(new CurrentUserArgumentResolver());
+        }
+        
+        // 예외 처리기 등록
+        @Override
+        public void configureHandlerExceptionResolvers(List<HandlerExceptionResolver> resolvers) {
+            // 커스텀 예외 리졸버 등록 예시
+            // SimpleMappingExceptionResolver resolver = new SimpleMappingExceptionResolver();
+            // Properties mappings = new Properties();
+            // mappings.setProperty(IllegalArgumentException.class.getName(), "error/badRequest");
+            // resolver.setExceptionMappings(mappings);
+            // resolver.setDefaultErrorView("error/default");
+            // resolvers.add(resolver);
+        }
+        
+        // 메시지 컨버터 설정
+        @Override
+        public void configureMessageConverters(List<HttpMessageConverter<?>> converters) {
+            // Jackson JSON 컨버터 설정 예시
+            // MappingJackson2HttpMessageConverter jsonConverter = new MappingJackson2HttpMessageConverter();
+            // ObjectMapper objectMapper = jsonConverter.getObjectMapper();
+            // objectMapper.setDateFormat(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"));
+            // converters.add(jsonConverter);
+        }
+        
+        // 비동기 요청 처리 설정
+        @Override
+        public void configureAsyncSupport(AsyncSupportConfigurer configurer) {
+            // configurer.setDefaultTimeout(30000); // 30초 타임아웃
+            // configurer.setTaskExecutor(taskExecutor());
+        }
+        
+        // 컨텐츠 협상 설정
+        @Override
+        public void configureContentNegotiation(ContentNegotiationConfigurer configurer) {
+            // configurer.favorParameter(true) // URL 파라미터 사용: ?format=json
+            //          .parameterName("format")
+            //          .defaultContentType(MediaType.APPLICATION_JSON);
+        }
+    }
+    ```
 
 ### 2. `filter`
 
-서블릿 컨테이너 레벨에서 요청을 사전/사후 처리하는 필터 컴포넌트입니다.
+Servlet container 레벨에서 동작하며, 요청이 DispatcherServlet에 도달하기 전에 사전 처리 역할을 합니다.
 
 #### LoggingFilter
 
-* HTTP 요청 정보 로깅 필터
-* **테스트 가능한 기능:**
-  * 필터 생명주기 메서드 (`init`, `doFilter`, `destroy`) 실행 확인
-  * 요청/응답 본문 로깅 구현
-  * MDC를 활용한 요청 추적
-  * 헤더 정보 로깅
-  * 성능 측정 및 임계치 초과 시 경고 로그
+* `javax.servlet.Filter`를 구현하여 요청 URL, 메서드, 클라이언트 IP 등을 로깅합니다.
 
-#### 확장 가능한 필터 기능
+  * `init()` / `doFilter()` / `destroy()`를 통해 생명주기 확인
+  * 순서 설정으로 다단계 필터링 구현 가능
+  * `FilterRegistrationBean`으로 설정
 
-* 인증 필터 구현 (JWT, 세션 등)
-* 요청/응답 압축 필터
-* 문자 인코딩 필터
-* CORS 필터
-* XSS 방지 필터
-* 요청 추적 ID 필터
+  **코드 예시 및 확장 기능:**
+    ```java
+    @Slf4j
+    public class LoggingFilter implements Filter {
+        @Override
+        public void init(FilterConfig filterConfig) {
+            log.info("[LoggingFilter] ▶️ 필터 초기화 완료");
+            
+            // 초기화 파라미터 읽기
+            // String logLevel = filterConfig.getInitParameter("logLevel");
+            // log.info("설정된 로그 레벨: {}", logLevel);
+        }
+    
+        @Override
+        public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
+                throws IOException, ServletException {
+            HttpServletRequest httpRequest = (HttpServletRequest) request;
+            String uri = httpRequest.getRequestURI();
+            String method = httpRequest.getMethod();
+            String clientIp = httpRequest.getRemoteAddr();
+    
+            log.info("[LoggingFilter] ▶️ 요청: [{}] {} from {}", method, uri, clientIp);
+            
+            // 성능 측정 추가
+            long startTime = System.currentTimeMillis();
+    
+            try {
+                // 요청 본문 래핑 예시
+                // ContentCachingRequestWrapper requestWrapper = new ContentCachingRequestWrapper(httpRequest);
+                // chain.doFilter(requestWrapper, response);
+                // byte[] content = requestWrapper.getContentAsByteArray();
+                // if (content.length > 0) {
+                //    log.debug("요청 본문: {}", new String(content));
+                // }
+                
+                chain.doFilter(request, response);
+            } finally {
+                long endTime = System.currentTimeMillis();
+                log.info("[LoggingFilter] ⏹️ 응답 완료: [{}] {} - {}ms", 
+                         method, uri, (endTime - startTime));
+            }
+        }
+    
+        @Override
+        public void destroy() {
+            log.info("[LoggingFilter] ❌ 필터 종료");
+        }
+    }
+    ```
+  ### 3. `interceptor`
 
-### 3. `interceptor`
+Spring MVC의 HandlerMapping → Controller 진입 전/후를 제어할 수 있는 레벨입니다.
 
-Spring MVC 내부에서 컨트롤러 실행 전/후에 동작하는 인터셉터 컴포넌트입니다.
+* **정의**: `HandlerInterceptor`를 구현해 요청 흐름을 중간에 가로채고, 사전/사후 로직을 실행
+* **AuthInterceptor**: 인증이나 공통 로직 처리에 활용됩니다.
 
-#### AuthInterceptor
+  * `preHandle()`에서 로그인 확인, 권한 체크 가능
+  * `postHandle()`에서 로깅, 리다이렉션 처리
+  * `afterCompletion()`에서 리소스 정리
 
-* 인증 관련 인터셉터
-* **테스트 가능한 기능:**
-  * `preHandle` - 컨트롤러 실행 전 (인증 검사, 권한 확인)
-  * `postHandle` - 컨트롤러 실행 후, 뷰 렌더링 전 (모델 데이터 추가)
-  * `afterCompletion` - 뷰 렌더링 후 (리소스 정리, 로깅)
-  * 어노테이션 기반 권한 검사 (`@AdminOnly`, `@RequiredPermission` 등)
-  * 실행 순서 제어 및 여러 인터셉터 체인 구성
-
-#### 확장 가능한 인터셉터 기능
-
-* 로깅 인터셉터
-* 성능 측정 인터셉터
-* 지역화(i18n) 인터셉터
-* 감사(Auditing) 인터셉터
-* 세션 관리 인터셉터
-* API 버전 관리 인터셉터
+  **코드 예시 및 확장 기능:**
+    ```java
+    public class AuthInterceptor implements HandlerInterceptor {
+        // 컨트롤러 실행 전 호출
+        @Override
+        public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
+            System.out.println("[AuthInterceptor] 요청 URL: " + request.getRequestURI());
+            
+            // 인증 처리 예시
+            // String token = request.getHeader("Authorization");
+            // if (token == null || !isValidToken(token)) {
+            //     response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            //     response.getWriter().write("인증이 필요합니다.");
+            //     return false; // 컨트롤러 실행 중단
+            // }
+            
+            // 권한 검사 예시 (핸들러가 메서드 핸들러인 경우)
+            // if (handler instanceof HandlerMethod) {
+            //     HandlerMethod handlerMethod = (HandlerMethod) handler;
+            //     AdminOnly adminOnly = handlerMethod.getMethodAnnotation(AdminOnly.class);
+            //     if (adminOnly != null && !isAdmin(request)) {
+            //         response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            //         return false;
+            //     }
+            // }
+            
+            return true; // true 반환 시 컨트롤러로 진행
+        }
+        
+        // 컨트롤러 실행 후, 뷰 렌더링 전 호출
+        @Override
+        public void postHandle(HttpServletRequest request, HttpServletResponse response, 
+                              Object handler, ModelAndView modelAndView) throws Exception {
+            // 뷰에 공통 데이터 추가
+            // if (modelAndView != null) {
+            //     modelAndView.addObject("serverTime", LocalDateTime.now());
+            // }
+        }
+        
+        // 뷰 렌더링 후 호출
+        @Override
+        public void afterCompletion(HttpServletRequest request, HttpServletResponse response, 
+                                   Object handler, Exception ex) throws Exception {
+            // 예외 처리 및 로깅
+            // if (ex != null) {
+            //     System.err.println("요청 처리 중 오류 발생: " + ex.getMessage());
+            // }
+            
+            // 리소스 정리
+            // cleanupResources(request);
+        }
+    }
+    ```
 
 ### 4. `aop`
 
-핵심 비즈니스 로직과 분리된 공통 관심사를 처리하는 AOP 컴포넌트입니다.
+**관심사 분리(Aspect-Oriented Programming)**: 공통 기능(로깅, 트랜잭션, 보안 등)을 핵심 비즈니스 로직과 분리하여 재사용성을 높이는 기법
 
-#### LogAspect
+* **용어 설명**:
 
-* 로깅 관련 AOP 기능
-* **테스트 가능한 기능:**
-  * `@Before` - 메서드 실행 전 로깅
-  * `@After` - 메서드 실행 후 로깅
-  * `@Around` - 메서드 실행 전후 로깅 및 성능 측정
-  * `@AfterReturning` - 메서드 정상 반환 시 로깅
-  * `@AfterThrowing` - 메서드 예외 발생 시 로깅
-  * 포인트컷 표현식을 통한 적용 대상 지정
+  * **Aspect**: 횡단 관심사의 모음 (예: 로깅)
+  * **Join Point**: Advice가 적용될 수 있는 지점 (메서드 호출 등)
+  * **Advice**: 실제 실행될 로직 (Before, After, Around 등)
+  * **Pointcut**: 어떤 JoinPoint에 Advice를 적용할지 정의하는 표현식
 
-#### TransactionLogAspect
+* **LogAspect**: `@Aspect`, `@Around`, `@Before`, `@AfterReturning` 등으로 Service 계층 로깅 구현 가능
 
-* 트랜잭션 관련 로깅 AOP
-* **테스트 가능한 기능:**
-  * `@Transactional` 어노테이션이 적용된 메서드 추적
-  * 트랜잭션 시작/커밋/롤백 흐름 로깅
-  * 트랜잭션 속성(전파 속성, 격리 수준 등) 확인
-  * 트랜잭션 실행 시간 측정
+* `@EnableAspectJAutoProxy`로 활성화
 
-#### 확장 가능한 AOP 기능
+* **트랜잭션과 AOP의 관계**:
 
-* 보안 관련 검사 (메서드 수준 인가)
-* 캐싱 AOP
-* 재시도 로직 AOP
-* 데이터 유효성 검사 AOP
-* API 속도 제한 AOP
-* 메서드 호출 추적 AOP
+  * `@Transactional` 어노테이션도 AOP 기반으로 동작합니다.
+  * 트랜잭션 시작/커밋/롤백 로직은 내부적으로 프록시 객체가 호출 전후에 처리합니다.
+  * `@Transactional`은 메서드 또는 클래스에 붙으며, 주로 Service 계층에서 선언합니다.
+  * Propagation, Isolation, rollbackFor 등 고급 트랜잭션 제어 옵션도 제공됩니다.
+
+#### LogAspect 예시
+
+```java
+@Aspect
+@Component
+public class LogAspect {
+    // 메서드 실행 전 로깅
+    @Before("execution(* com.study.springflow.controller.*.*(..))")
+    public void logBefore(JoinPoint joinPoint) {
+        System.out.println("[LogAspect] 컨트롤러 메서드 실행 전: " + 
+                           joinPoint.getSignature().getDeclaringTypeName() + "." + 
+                           joinPoint.getSignature().getName());
+    }
+    
+    // 메서드 실행 전후 로깅 및 성능 측정
+    @Around("execution(* com.study.springflow.controller.*.*(..))")
+    public Object logExecutionTime(ProceedingJoinPoint joinPoint) throws Throwable {
+        long start = System.currentTimeMillis();
+        
+        try {
+            // 메서드 실행
+            Object result = joinPoint.proceed();
+            return result;
+        } finally {
+            long end = System.currentTimeMillis();
+            System.out.println("[LogAspect] " + joinPoint.getSignature().getName() + 
+                               " 메서드 실행 시간: " + (end - start) + "ms");
+        }
+    }
+    
+    // 메서드 정상 반환 후 로깅
+    @AfterReturning(
+        pointcut = "execution(* com.study.springflow.service.*.*(..))",
+        returning = "result"
+    )
+    public void logAfterReturning(JoinPoint joinPoint, Object result) {
+        System.out.println("[LogAspect] 메서드 정상 반환: " + 
+                          joinPoint.getSignature().getName() + ", 결과: " + result);
+    }
+    
+    // 메서드에서 예외 발생 시 로깅
+    @AfterThrowing(
+        pointcut = "execution(* com.study.springflow.service.*.*(..))",
+        throwing = "exception"
+    )
+    public void logAfterThrowing(JoinPoint joinPoint, Exception exception) {
+        System.out.println("[LogAspect] 메서드에서 예외 발생: " + 
+                          joinPoint.getSignature().getName() + ", 예외: " + exception.getMessage());
+    }
+}
+```
+
+#### 트랜잭션 로깅 AOP 예시
+
+```java
+@Aspect
+@Component
+@Order(1) // 낮은 숫자가 먼저 실행됨
+public class TransactionLogAspect {
+    @Around("execution(* com.study.springflow.service..*(..)) && @annotation(transactional)")
+    public Object logTransaction(ProceedingJoinPoint joinPoint, Transactional transactional) throws Throwable {
+        String methodName = joinPoint.getSignature().getName();
+        String className = joinPoint.getTarget().getClass().getSimpleName();
+        boolean readOnly = transactional.readOnly();
+        
+        System.out.println("\n=== 트랜잭션 시작 ===");
+        System.out.println("클래스: " + className);
+        System.out.println("메서드: " + methodName);
+        System.out.println("읽기전용: " + readOnly);
+        System.out.println("전파속성: " + transactional.propagation());
+        
+        long startTime = System.currentTimeMillis();
+        
+        try {
+            // 메서드 실행
+            Object result = joinPoint.proceed();
+            
+            long endTime = System.currentTimeMillis();
+            System.out.println("=== 트랜잭션 커밋 ===");
+            System.out.println("실행시간: " + (endTime - startTime) + "ms");
+            
+            return result;
+        } catch (Exception e) {
+            long endTime = System.currentTimeMillis();
+            System.out.println("=== 트랜잭션 롤백 ===");
+            System.out.println("예외: " + e.getClass().getSimpleName() + " - " + e.getMessage());
+            System.out.println("실행시간: " + (endTime - startTime) + "ms");
+            
+            throw e;
+        }
+    }
+}
+```
 
 ### 5. `controller`
 
-HTTP 요청을 처리하고 비즈니스 로직을 호출하는 컨트롤러 컴포넌트입니다.
+DispatcherServlet 이후 요청을 처리하는 실제 엔드포인트.
 
-#### HelloController
+* **HelloController**: `/hello` 요청을 받아 단순 메시지 응답
 
-* 간단한 테스트용 REST 컨트롤러
-* **테스트 가능한 기능:**
-  * `@RestController` 및 `@Controller` 차이점 테스트
-  * 다양한 HTTP 메서드 매핑 (`@GetMapping`, `@PostMapping` 등)
-  * 경로 변수 및 요청 파라미터 처리
-  * 요청 본문 바인딩
-  * 응답 상태 코드 제어
+  * 요청 흐름 시 Filter → Interceptor → Controller 실행 확인 가능
 
-#### MemberController
-
-* 회원 관리 REST API 컨트롤러
-* **테스트 가능한 기능:**
-  * 회원 CRUD 작업 처리
-  * DTO ↔ 엔티티 변환
-  * 유효성 검사 (`@Valid`)
-  * 예외 처리 및 오류 응답 생성
-  * ResponseEntity를 통한 응답 구성
+```java
+@RestController
+public class HelloController {
+    @GetMapping("/hello")
+    public String hello() {
+        System.out.println("[HelloController] hello() 메서드 실행");
+        return "Hello, SpringFlow!";
+    }
+    
+    @GetMapping("/error-test")
+    public String errorTest() {
+        System.out.println("[HelloController] errorTest() 메서드 실행");
+        throw new RuntimeException("테스트 예외 발생");
+    }
+}
+```
 
 ### 6. `advice`
 
-컨트롤러에서 발생하는 예외를 중앙에서 처리하는 컴포넌트입니다.
+글로벌 예외 핸들링 처리
 
-#### GlobalExceptionHandler
+* **GlobalExceptionHandler**: `@ControllerAdvice` + `@ExceptionHandler`로 예외를 통합 처리
 
-* 전역 예외 처리기
-* **테스트 가능한 기능:**
-  * `@ControllerAdvice` 및 `@RestControllerAdvice` 설정
-  * `@ExceptionHandler`를 통한 예외 타입별 처리
-  * 일관된 오류 응답 구조 생성
-  * 예외 상황별 HTTP 상태 코드 매핑
-  * 로깅 및 알림 기능 추가
+  * 예외 종류별 JSON 응답 통일
 
-#### 확장 가능한 어드바이스 기능
-
-* `@ModelAttribute` 어드바이스로 모든 모델에 공통 데이터 추가
-* 요청 본문, 응답 본문 변환 어드바이스
-* API 버전 정보 어드바이스
-* HATEOAS 링크 추가 어드바이스
+```java
+@ControllerAdvice
+public class GlobalExceptionHandler {
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<Map<String, Object>> handleAllExceptions(Exception ex) {
+        System.out.println("[GlobalExceptionHandler] 예외 처리: " + ex.getMessage());
+        
+        Map<String, Object> errorResponse = new HashMap<>();
+        errorResponse.put("timestamp", LocalDateTime.now().toString());
+        errorResponse.put("status", HttpStatus.INTERNAL_SERVER_ERROR.value());
+        errorResponse.put("error", "Internal Server Error");
+        errorResponse.put("message", ex.getMessage());
+        
+        return new ResponseEntity<>(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+    
+    // 특정 예외 타입별 처리
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<Map<String, Object>> handleIllegalArgumentException(IllegalArgumentException ex) {
+        Map<String, Object> errorResponse = new HashMap<>();
+        errorResponse.put("timestamp", LocalDateTime.now().toString());
+        errorResponse.put("status", HttpStatus.BAD_REQUEST.value());
+        errorResponse.put("error", "Bad Request");
+        errorResponse.put("message", ex.getMessage());
+        
+        return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
+    }
+}
+```
 
 ### 7. `service`
 
-비즈니스 로직을 구현하고 트랜잭션을 관리하는 서비스 컴포넌트입니다.
+비즈니스 로직 구현 계층이며 AOP 테스트, 트랜잭션 실험을 위한 공간입니다.
 
-#### MemberService
+* `@Service` 클래스 내부에서 DB 접근 시 `@Transactional` 테스트 가능
+* 트랜잭션 롤백, readOnly, propagation 실험 가능
 
-* 회원 관리 비즈니스 로직
-* **테스트 가능한 기능:**
-  * `@Transactional` 기본 사용법
-  * 읽기 전용 트랜잭션 (`readOnly = true`)
-  * 트랜잭션 전파 속성 테스트 (`propagation = Propagation.REQUIRED` 등)
-  * 트랜잭션 격리 수준 테스트 (`isolation = Isolation.READ_COMMITTED` 등)
-  * 특정 예외에 대한 롤백 설정 (`rollbackFor = Exception.class`)
-  * 트랜잭션 타임아웃 설정 (`timeout = 10`)
-
-#### 확장 가능한 서비스 기능
-
-* 이벤트 발행 (ApplicationEventPublisher)
-* 캐싱 (`@Cacheable`, `@CacheEvict` 등)
-* 비동기 처리 (`@Async`)
-* 스케줄링 (`@Scheduled`)
-* 재시도 로직 (`@Retryable`)
-* 분산 락 적용
-
-### 8. `entity`
-
-JPA를 사용한 데이터베이스 엔티티 클래스입니다.
-
-#### Member
-
-* 회원 정보 엔티티
-* **테스트 가능한 기능:**
-  * 기본적인 ORM 매핑 (`@Entity`, `@Table`, `@Column` 등)
-  * 식별자 생성 전략 (`@GeneratedValue`)
-  * 관계 매핑 (`@OneToMany`, `@ManyToOne` 등)
-  * 열거형 매핑 (`@Enumerated`)
-  * 생명주기 콜백 (`@PrePersist`, `@PostLoad` 등)
-  * 임베디드 값 타입 (`@Embedded`)
-
-#### 확장 가능한 엔티티 기능
-
-* 상속 관계 매핑 (`@Inheritance`)
-* 낙관적 락 (`@Version`)
-* 동적 쿼리를 위한 메타모델 생성
-* 감사(Auditing) 정보 관리
-* 소프트 삭제 구현
-* 커스텀 ID 생성기
-
-### 9. `repository`
-
-데이터 접근 계층을 담당하는 레포지토리 컴포넌트입니다.
-
-#### MemberRepository
-
-* 회원 엔티티 데이터 액세스 인터페이스
-* **테스트 가능한 기능:**
-  * Spring Data JPA 기본 CRUD 메서드
-  * 메서드 이름 기반 쿼리 생성
-  * `@Query`를 사용한 JPQL 쿼리
-  * 네이티브 SQL 쿼리 사용 (`nativeQuery = true`)
-  * 페이징 및 정렬 처리
-  * 동적 Specification 또는 QueryDSL 사용
-
-#### 확장 가능한 레포지토리 기능
-
-* 커스텀 레포지토리 구현
-* 프로젝션을 통한 부분 데이터 조회
-* 비동기 쿼리 메서드 (`@Async`)
-* 저장소 감사(Auditing) 기능
-* 대량 배치 작업
-* N+1 문제 해결을 위한 fetch join
-
-### 10. `docs`
-
-프로젝트의 핵심 흐름과 테스트 결과를 문서화합니다.
-
-#### flow-request.md
-
-* 요청 처리 흐름 문서
-* **문서화 가능한 항목:**
-  * Filter → Interceptor → Controller → Service → Repository 흐름 로그
-  * 트랜잭션 시작/커밋/롤백 로그
-  * 예외 처리 흐름 로그
-  * AOP 적용 전후 로그
-  * 컴포넌트 실행 순서 다이어그램
-
-#### flow-transaction.md
-
-* 트랜잭션 처리 흐름 문서
-* **문서화 가능한 항목:**
-  * 트랜잭션 전파 속성별 동작 차이
-  * 트랜잭션 격리 수준별 동작 차이
-  * 트랜잭션 롤백 시나리오
-  * 중첩 트랜잭션 테스트 결과
-
-#### flow-aop.md
-
-* AOP 처리 흐름 문서
-* **문서화 가능한 항목:**
-  * AOP 프록시 생성 과정
-  * 어드바이스 실행 순서
-  * 포인트컷 표현식별 적용 범위
-  * AOP와 트랜잭션 연동 방식
-
-## 실행 및 테스트 방법
-
-### 1. 기본 설정 테스트
-
-* 애플리케이션 시작 시 Bean 등록 로그 확인
-* `http://localhost:8080/hello` 접속으로 기본 요청 처리 흐름 확인
-* H2 콘솔 접속 (`http://localhost:8080/h2-console`)으로 데이터베이스 확인
-
-### 2. 요청 처리 흐름 테스트
-
-* Filter → Interceptor → Controller → Service 흐름 추적
-* 로그를 통한 각 단계별 실행 시점 확인
-* HTTP 메서드별 처리 방식 비교 (GET, POST, PUT, DELETE)
-
-### 3. 트랜잭션 테스트
-
-* `@Transactional` 적용 메서드 동작 확인
-* 프록시 기반 트랜잭션 처리 분석
-* 롤백 테스트 (`simulateError=true` 파라미터 사용)
-* 읽기 전용 트랜잭션과 일반 트랜잭션 성능 비교
-
-### 4. AOP 테스트
-
-* 로깅 AOP를 통한 메서드 실행 시간 측정
-* 다양한 어드바이스 타입 적용 및 실행 순서 확인
-* 포인트컷 표현식 변경을 통한 AOP 적용 범위 테스트
-* AOP와 트랜잭션 연동 테스트
-
-### 5. 예외 처리 테스트
-
-* 의도적 예외 발생 테스트 (`/error-test` 엔드포인트)
-* `@ExceptionHandler`를 통한 예외 처리 흐름 확인
-* 트랜잭션 롤백 연동 테스트
-* 예외 발생 시 로깅 및 응답 포맷 검증
+```java
+@Service
+public class ExampleService {
+    private final ExampleRepository repository;
+    
+    @Autowired
+    public ExampleService(ExampleRepository repository) {
+        this.repository = repository;
+    }
+    
+    // 읽기 전용 트랜잭션 - 조회 성능 최적화
+    @Transactional(readOnly = true)
+    public SomeEntity findById(Long id) {
+        return repository.findById(id)
+            .orElseThrow(() -> new IllegalArgumentException("Entity not found: " + id));
+    }
+    
+    // 기본 쓰기 트랜잭션 - 저장/수정
+    @Transactional
+    public SomeEntity save(SomeEntity entity) {
+        return repository.save(entity);
+    }
+    
+    // 트랜잭션 전파 속성 테스트
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void processWithNewTransaction(Long id) {
+        // 항상 새로운 트랜잭션으로 실행
+        // 외부 트랜잭션이 롤백되어도 이 메서드 내용은 커밋됨
+    }
+    
+    // 롤백 테스트
+    @Transactional
+    public void deleteWithPossibleRollback(Long id, boolean simulateError) {
+        repository.deleteById(id);
+        
+        if (simulateError) {
+            throw new RuntimeException("의도적인 롤백 테스트");
+        }
+    }
+}
+```
 
 ---
 
+## 테스트 및 확장 가능한 기능들
+
+### 1. 트랜잭션 전파 속성 실험
+
+다양한 전파 속성(Propagation)을 테스트하여 트랜잭션 동작을 이해할 수 있습니다:
+
+* **REQUIRED (기본값)**: 외부 트랜잭션이 있으면 참여, 없으면 새로 생성
+* **REQUIRES_NEW**: 항상 새로운 트랜잭션을 생성 (기존 트랜잭션은 일시 중단)
+* **NESTED**: 외부 트랜잭션 내에서 중첩 트랜잭션 생성 (부분 롤백 가능)
+* **SUPPORTS**: 외부 트랜잭션이 있으면 참여, 없으면 비트랜잭션으로 실행
+* **NOT_SUPPORTED**: 비트랜잭션으로 실행 (기존 트랜잭션은 일시 중단)
+* **NEVER**: 비트랜잭션으로 실행 (외부 트랜잭션이 있으면 예외 발생)
+* **MANDATORY**: 외부 트랜잭션이 있어야 실행 (없으면 예외 발생)
+
+### 2. 격리 수준 테스트
+
+트랜잭션 격리 수준(Isolation)을 설정하여 동시성 제어 방식을 실험할 수 있습니다:
+
+* **DEFAULT**: 데이터베이스 기본 격리 수준 사용
+* **READ_UNCOMMITTED**: 다른 트랜잭션의 커밋되지 않은 데이터 읽기 가능 (더티 리드)
+* **READ_COMMITTED**: 다른 트랜잭션의 커밋된 데이터만 읽기 가능
+* **REPEATABLE_READ**: 같은 트랜잭션 내에서 동일 데이터 여러번 읽을 때 일관성 보장
+* **SERIALIZABLE**: 가장 높은 격리 수준 (동시성 낮음, 일관성 높음)
+
+### 3. 요청 처리 흐름 문서화
+
+`/docs/flow-request.md`와 같은 형태로 흐름을 상세히 문서화할 수 있습니다:
+
+```markdown
+# 요청 처리 흐름 문서화
+
+## 일반 GET 요청 흐름
+
+1. LoggingFilter의 doFilter() 메서드 호출
+2. AuthInterceptor의 preHandle() 메서드 호출
+3. LogAspect의 @Before 어드바이스 실행
+4. 컨트롤러 메서드 실행
+5. 트랜잭션 적용 시 TransactionLogAspect 어드바이스 실행
+6. LogAspect의 @After 어드바이스 실행
+7. AuthInterceptor의 postHandle() 메서드 호출
+8. ViewResolver에 의한 뷰 처리
+9. AuthInterceptor의 afterCompletion() 메서드 호출
+10. LoggingFilter의 doFilter() 메서드 완료
+
+## 예외 발생 시 흐름
+
+1. LoggingFilter의 doFilter() 메서드 호출
+2. AuthInterceptor의 preHandle() 메서드 호출
+3. LogAspect의 @Before 어드바이스 실행
+4. 컨트롤러 메서드 실행 중 예외 발생
+5. LogAspect의 @AfterThrowing 어드바이스 실행
+6. GlobalExceptionHandler의 @ExceptionHandler 메서드 호출
+7. AuthInterceptor의 afterCompletion() 메서드 호출 (예외 포함)
+8. LoggingFilter의 doFilter() 메서드 완료 (예외 처리)
+```
+
+---
+
+이후 각 기능이 추가될 때마다 `/docs/flow-*.md` 형태로 흐름 설명과 로그 샘플, 발생 순서 등을 기록할 예정입니다.
