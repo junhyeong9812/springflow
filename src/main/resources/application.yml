@@ -14,3 +14,9 @@ spring:
   h2:
     console:
       enabled: true
+
+security:
+  jwt:
+    token:
+      secret-key: spRiNgFlOwSeCrEtKeY2025ForJwtTeSt1234567890AbCdEfGhIjKlMnOpQrStUvWxYz # 실제 운영 환경에서는 더 복잡한 값 사용
+      expire-length: 3600000 # 1시간 (밀리초 단위)

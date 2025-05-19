@@ -15,6 +15,8 @@ java {
 
 repositories {
 	mavenCentral()
+	maven { url "https://repo.spring.io/milestone" }
+	maven { url "https://repo.spring.io/snapshot" }
 }
 
 dependencies {
@@ -25,6 +27,14 @@ dependencies {
 	// JPA + H2
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 	runtimeOnly 'com.h2database:h2'
+
+	// 스프링 시큐리티
+	implementation 'org.springframework.boot:spring-boot-starter-security'
+
+	// JWT 라이브러리
+	implementation 'io.jsonwebtoken:jjwt-api:0.11.5'
+	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.11.5'
+	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.11.5'
 
 	// Lombok
 	compileOnly 'org.projectlombok:lombok'

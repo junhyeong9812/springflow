@@ -2,9 +2,11 @@ package com.study.springflow.config;
 
 import com.study.springflow.interceptor.AuthInterceptor;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 import org.springframework.web.servlet.config.annotation.*;
+import org.springframework.web.util.pattern.PathPatternParser;
 
 import java.util.List;
 
@@ -57,6 +59,10 @@ public class WebMvcConfig implements WebMvcConfigurer {
      * - 다른 도메인에서의 API 호출 허용 설정
      * - /api/** 경로에 대한 크로스 도메인 요청 처리 규칙 정의
      *
+     * ⚠️ 주의사항:
+     * - allowedOrigins("*")와 allowCredentials(true)를 함께 사용하면 CORS 명세 위반으로 오류 발생
+     * - Spring 5.3부터 allowedOrigins("*") 대신 allowedOriginPatterns("*") 사용 권장
+     *
      * 🔍 추가 활용 옵션:
      * 1. 특정 도메인만 허용:
      *    registry.addMapping("/api/**")
@@ -78,17 +84,25 @@ public class WebMvcConfig implements WebMvcConfigurer {
      *
      * 4. 특정 헤더만 허용:
      *    registry.addMapping("/api/v2/**")
-     *            .allowedOrigins("*")
+     *            .allowedOriginPatterns("*")
      *            .allowedMethods("GET", "POST", "PUT")
      *            .allowedHeaders("Content-Type", "X-Requested-With", "Authorization");
      */
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/api/**")
-                .allowedOrigins("*")
-                .allowedMethods("GET", "POST", "PUT", "DELETE")
+                // allowedOrigins("*")와 allowCredentials(true)는 함께 사용할 수 없음
+                // Spring 5.3부터는 allowedOriginPatterns("*") 사용
+                .allowedOriginPatterns("*") // 모든 출처를 허용하면서 credentials도 허용
+                .allowedMethods(
+                        HttpMethod.GET.name(),
+                        HttpMethod.POST.name(),
+                        HttpMethod.PUT.name(),
+                        HttpMethod.DELETE.name()
+                )
                 .allowedHeaders("*")
-                .allowCredentials(true);
+                .allowCredentials(true)
+                .maxAge(3600); // 프리플라이트 요청 캐시 시간(초)
     }
 
     /**
@@ -171,30 +185,40 @@ public class WebMvcConfig implements WebMvcConfigurer {
     /**
      * 경로 매치 설정
      * - URL 요청 경로 처리 방식 설정
-     * - 후행 슬래시 매칭 활성화, 확장자 매칭 비활성화
+     * - 패턴 매칭 파서 설정 (Spring 5.3+에서 변경됨)
      *
-     * 🔍 추가 활용 옵션:
-     * 1. 매트릭스 변수 활성화:
-     *    // URL: /users/42;role=admin;status=active 형식 사용 가능
-     *    configurer.setRemoveSemicolonContent(false);
+     * ⚠️ 주의사항:
+     * - Spring 5.3부터 setUseTrailingSlashMatch(), setUseSuffixPatternMatch() 메서드 deprecated
+     * - 대신 PathPatternParser 사용 (AntPathMatcher 대체)
+     * - PathPatternParser는 더 효율적이고 성능이 좋은 URL 패턴 매칭 제공
      *
-     * 2. 접미사 패턴 매칭 설정:
-     *    configurer.setUseSuffixPatternMatch(true); // /users가 /users.json도 매칭
-     *    configurer.setUseRegisteredSuffixPatternMatch(true); // 등록된 확장자만 매칭
+     * 🔍 현대적인 경로 매칭 설정 방법:
+     * 1. PathPatternParser 적용:
+     *    - 자동으로 후행 슬래시('/') 매칭 비활성화
+     *    - 확장자 패턴 매칭 비활성화
+     *    - 더 엄격한 경로 매칭 (보안 향상)
+     *    - 더 빠른 경로 매칭 성능
      *
-     * 3. 대소문자 구분 설정:
-     *    configurer.setCaseSensitive(true); // URL 대소문자 구분
+     * 2. 매트릭스 변수 활성화:
+     *    // Spring 5.3+에서 더 이상 setRemoveSemicolonContent()를 사용하지 않음
+     *    // PathPattern 자체에서 매트릭스 변수를 지원함
+     *    // (예시 URL: /users/42;role=admin;status=active)
      *
-     * 4. URL 경로 정규화:
-     *    UrlPathHelper pathHelper = new UrlPathHelper();
-     *    pathHelper.setRemoveSemicolonContent(false); // 매트릭스 변수 지원
-     *    pathHelper.setUrlDecode(true);
-     *    configurer.setUrlPathHelper(pathHelper);
+     * 3. 경로 패턴 매칭 추가 옵션:
+     *    configurer.addPathPrefix("/api",
+     *            HandlerTypePredicate.forAnnotation(RestController.class));
      */
     @Override
     public void configurePathMatch(PathMatchConfigurer configurer) {
-        configurer.setUseTrailingSlashMatch(true);
-        configurer.setUseSuffixPatternMatch(false);
+        // 최신 방식으로 경로 매칭 설정 (Spring 5.3+)
+        // deprecated된 setUseTrailingSlashMatch(), setUseSuffixPatternMatch() 대신 PathPatternParser 사용
+        PathPatternParser pathPatternParser = new PathPatternParser();
+        configurer.setPatternParser(pathPatternParser);
+
+        // 특정 패키지/어노테이션 기반 경로 프리픽스 추가 예시:
+        // REST API 컨트롤러 자동 매핑 (선택 사항)
+        // configurer.addPathPrefix("/api",
+        //     HandlerTypePredicate.forAnnotation(RestController.class));
     }
 
     /**
@@ -361,7 +385,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
      * 1. 메시지 컨버터 구성:
      *    @Override
      *    public void configureMessageConverters(List<HttpMessageConverter<?>> converters) {
-     *        converters.add(new StringHttpMessageConverter(Charset.forName("UTF-8")));
+     *        converters.add(new StringHttpMessageConverter(StandardCharsets.UTF_8)); // Charset.forName() 대신 StandardCharsets 사용
      *
      *        MappingJackson2HttpMessageConverter jsonConverter = new MappingJackson2HttpMessageConverter();
      *        ObjectMapper objectMapper = jsonConverter.getObjectMapper();
