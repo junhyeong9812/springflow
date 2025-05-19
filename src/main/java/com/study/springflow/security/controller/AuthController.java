@@ -5,6 +5,12 @@ import com.study.springflow.security.dto.LoginRequest;
 import com.study.springflow.security.dto.TokenResponse;
 import com.study.springflow.security.jwt.JwtTokenProvider;
 import com.study.springflow.service.MemberService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -25,6 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
+@Tag(name = "인증", description = "인증 관련 API - 로그인, 회원가입")
 public class AuthController {
 
     private final AuthenticationManager authenticationManager;
@@ -36,6 +43,12 @@ public class AuthController {
      * - 사용자 인증 후 JWT 토큰 발급
      */
     @PostMapping("/login")
+    @Operation(summary = "로그인", description = "사용자 인증 후 JWT 토큰 발급")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "로그인 성공",
+                    content = @Content(schema = @Schema(implementation = TokenResponse.class))),
+            @ApiResponse(responseCode = "401", description = "인증 실패")
+    })
     public ResponseEntity<TokenResponse> login(@RequestBody LoginRequest loginRequest) {
         log.info("[AuthController] 로그인 요청: {}", loginRequest.getUsername());
 
@@ -73,6 +86,12 @@ public class AuthController {
      * - 새 회원 등록
      */
     @PostMapping("/register")
+    @Operation(summary = "회원가입", description = "새 회원 등록")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "회원가입 성공",
+                    content = @Content(schema = @Schema(implementation = Member.class))),
+            @ApiResponse(responseCode = "400", description = "입력값 오류 또는 중복된 사용자")
+    })
     public ResponseEntity<Member> register(@RequestBody Member member) {
         log.info("[AuthController] 회원가입 요청: {}", member.getUsername());
 

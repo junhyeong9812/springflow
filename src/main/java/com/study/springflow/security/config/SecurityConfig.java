@@ -21,10 +21,11 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 /**
- * 스프링 시큐리티 설정 클래스
+ * 스프링 시큐리티 설정 클래스 (Swagger 지원 추가)
  * - 보안 필터 체인 구성
  * - 인증/인가 규칙 설정
  * - JWT 관련 설정
+ * - Swagger UI 접근 허용
  */
 @Slf4j
 @Configuration
@@ -56,6 +57,7 @@ public class SecurityConfig {
 
     /**
      * 보안 필터 체인 설정
+     * - Swagger UI 접근 허용 추가
      */
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -87,6 +89,9 @@ public class SecurityConfig {
                                 .requestMatchers("/api/auth/**", "/h2-console/**").permitAll()
                                 .requestMatchers("/", "/hello").permitAll()
                                 .requestMatchers("/error/**").permitAll()
+
+                                // Swagger UI 관련 경로 허용
+                                .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
 
                                 // 관리자 권한이 필요한 경로
                                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
