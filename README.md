@@ -727,6 +727,73 @@ public class ExampleService {
 }
 ```
 
+### 8. `security`
+
+SpringFlow 프로젝트는 Spring Security와 JWT를 활용한 보안 기능을 포함하고 있습니다. 자세한 내용은 [security/README.md](security/README.md) 파일을 참조하세요.
+
+#### 보안 기능 요약
+
+1. **JWT 기반 인증**: 클라이언트는 사용자 인증 후 JWT 토큰을 발급받아 요청 시 사용합니다.
+2. **ROLE 기반 권한 부여**: 각 엔드포인트는 ADMIN, USER 등 특정 권한이 필요합니다.
+3. **리소스 소유자 확인**: 자신의 정보만 수정 가능하도록 제한됩니다(관리자 제외).
+4. **비밀번호 암호화**: 사용자 비밀번호는 BCrypt로 암호화되어 저장됩니다.
+
+#### API 엔드포인트
+
+보안 관련 주요 API 엔드포인트:
+
+- **회원가입**: `POST /api/auth/register`
+- **로그인**: `POST /api/auth/login`
+- **현재 회원 정보**: `GET /api/members/me`
+- **회원 상세 조회**: `GET /api/members/{id}`
+- **비밀번호 변경**: `PUT /api/members/{id}/password`
+- **회원 삭제**: `DELETE /api/members/{id}`
+
+자세한 API 사용법과 테스트 방법은 [security/README.md](security/README.md)를 참조하세요.
+
+### 9. `swagger`
+
+Swagger UI를 통해 API 문서화 및 테스트가 가능합니다. 자세한 내용은 [swagger/README.md](swagger/README.md) 파일을 참조하세요.
+
+#### Swagger UI 접근 방법
+
+애플리케이션 실행 후, 브라우저에서 아래 URL로 접근하세요:
+```
+http://localhost:8080/swagger-ui/index.html
+```
+
+#### 주요 기능
+
+- **API 그룹 확인**: 인증 API, 회원 관리 API 등
+- **JWT 인증 테스트**: 토큰 발급 및 인증이 필요한 API 테스트
+- **요청/응답 스키마 확인**: 각 API의 입출력 데이터 구조 확인
+- **API 직접 테스트**: "Try it out" 기능을 통한 API 호출 테스트
+
+자세한 사용법은 [swagger/README.md](swagger/README.md)를 참조하세요.
+
+### 추가 테스트 시나리오 (테스트 및 확장 가능한 기능들 섹션에 추가)
+
+### 4. 보안 기능 테스트 시나리오
+
+1. **권한 기반 접근 테스트**:
+  - 일반 사용자로 로그인 후 관리자 전용 API 호출 시 403 에러 확인
+  - 관리자로 로그인 후 동일 API 호출 시 성공 확인
+
+2. **리소스 소유자 확인 테스트**:
+  - 사용자 A로 로그인 후 사용자 B의 정보 수정 시도 시 403 에러 확인
+  - 관리자로 로그인 후 모든 사용자 정보 수정 가능 확인
+
+3. **토큰 만료 테스트**:
+  - 만료된 토큰으로 요청 시 401 에러 확인
+  - 로그인으로 새 토큰 발급 후 동일 요청 성공 확인
+
+### 실행 방법에 추가
+
+5. Swagger UI 접속
+```
+http://localhost:8080/swagger-ui/index.html
+```
+
 ---
 
 ## 테스트 및 확장 가능한 기능들
